@@ -7,7 +7,7 @@ Introducing our deep learning system for detecting cylinder microrobots in ultra
 
 
 
-🔬 We just built something that sits at the intersection of AI, robotics, and medicine — and it's wild.
+🔬 Just built something that sits at the intersection of AI, robotics, and medicine — and it's wild.
 
 📡 Introducing our deep learning system for detecting cylinder microrobots in ultrasound images — trained on USMicroMagSet, a first-of-its-kind dataset of 40,000 ultrasound frames capturing 8 different microrobot types navigating microfluidic channels.
 
@@ -47,9 +47,9 @@ The full stack is open — YOLOv5 weights, Flask inference API, drag-and-drop im
 
 • 40K images extracted from 10-min videos per robot
 
-• Recorded at NSTP Islamabad with clinical-grade US equipment
+🚀 This is just the beginning.
 
-🚀 This is just the beginning. Next: multi-class detection, 3D tracking, and integration with magnetic field control systems.
+Next: multi-class detection, 3D tracking, and integration with magnetic field control systems.
 
 If you work in medical robotics, surgical AI, ultrasound imaging, or autonomous microrobotics — let's connect. 🤝
 
