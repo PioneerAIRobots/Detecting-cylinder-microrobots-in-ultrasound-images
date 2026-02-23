@@ -1,0 +1,2046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>USMicroMagSet — Cylinder Microrobot Detection</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #030a0f;
+    --surface: #071420;
+    --panel: #0b1e2e;
+    --border: #0d3a56;
+    --accent: #00d4ff;
+    --accent2: #00ff9d;
+    --accent3: #ff6b35;
+    --text: #c8e6f5;
+    --text-dim: #4a7a99;
+    --glow: 0 0 20px rgba(0,212,255,0.3);
+    --glow2: 0 0 20px rgba(0,255,157,0.3);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Space Mono', monospace;
+    background: var(--bg);
+    color: var(--text);
+    overflow-x: hidden;
+    cursor: crosshair;
+  }
+
+  /* Scanline overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  /* Noise texture */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9998;
+  }
+
+  /* ── HEADER ── */
+  header {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 40px;
+    background: rgba(3,10,15,0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 1.1rem;
+    letter-spacing: 0.2em;
+    color: var(--accent);
+    text-shadow: var(--glow);
+  }
+
+  .logo span { color: var(--accent2); }
+
+  .status-bar {
+    display: flex;
+    gap: 24px;
+    align-items: center;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+  }
+
+  .status-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent2);
+    animation: pulse 2s infinite;
+  }
+
+  .dot.orange { background: var(--accent3); }
+  .dot.blue { background: var(--accent); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(0.8); }
+  }
+
+  /* ── HERO ── */
+  #hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    padding-top: 80px;
+  }
+
+  .grid-bg {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,255,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,255,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
+    animation: gridScroll 20s linear infinite;
+  }
+
+  @keyframes gridScroll {
+    0% { transform: translateY(0); }
+    100% { transform: translateY(60px); }
+  }
+
+  /* Radar animation */
+  .radar-container {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    width: 700px; height: 700px;
+    opacity: 0.08;
+  }
+
+  .radar-ring {
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid var(--accent);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    animation: radarPulse 3s ease-out infinite;
+  }
+
+  .radar-ring:nth-child(1) { width: 200px; height: 200px; animation-delay: 0s; }
+  .radar-ring:nth-child(2) { width: 350px; height: 350px; animation-delay: 0.5s; }
+  .radar-ring:nth-child(3) { width: 500px; height: 500px; animation-delay: 1s; }
+  .radar-ring:nth-child(4) { width: 650px; height: 650px; animation-delay: 1.5s; }
+
+  @keyframes radarPulse {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+    50% { opacity: 1; }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.1); }
+  }
+
+  .hero-content {
+    position: relative;
+    text-align: center;
+    z-index: 2;
+  }
+
+  .hero-tag {
+    font-size: 0.65rem;
+    letter-spacing: 0.3em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 20px;
+    opacity: 0;
+    animation: fadeUp 0.8s 0.2s forwards;
+  }
+
+  .hero-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(2.5rem, 6vw, 5rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin-bottom: 24px;
+    opacity: 0;
+    animation: fadeUp 0.8s 0.4s forwards;
+  }
+
+  .hero-title .highlight {
+    color: transparent;
+    -webkit-text-stroke: 1px var(--accent);
+    position: relative;
+  }
+
+  .hero-title .highlight2 {
+    background: linear-gradient(135deg, var(--accent), var(--accent2));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .hero-sub {
+    font-size: 0.8rem;
+    line-height: 1.8;
+    color: var(--text-dim);
+    max-width: 520px;
+    margin: 0 auto 40px;
+    opacity: 0;
+    animation: fadeUp 0.8s 0.6s forwards;
+  }
+
+  .hero-cta {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    opacity: 0;
+    animation: fadeUp 0.8s 0.8s forwards;
+  }
+
+  .btn {
+    padding: 12px 32px;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.3s;
+    border: none;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  .btn-primary:hover {
+    box-shadow: 0 0 30px rgba(0,212,255,0.5);
+    transform: translateY(-2px);
+  }
+
+  .btn-outline {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+
+  .btn-outline:hover {
+    background: rgba(0,212,255,0.1);
+    box-shadow: var(--glow);
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Floating particles */
+  .particles {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .particle {
+    position: absolute;
+    width: 2px; height: 2px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: float linear infinite;
+  }
+
+  @keyframes float {
+    0% { transform: translateY(100vh) translateX(0); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateY(-100px) translateX(var(--dx)); opacity: 0; }
+  }
+
+  /* scroll indicator */
+  .scroll-hint {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.55rem;
+    letter-spacing: 0.2em;
+    color: var(--text-dim);
+    animation: fadeUp 1s 1.5s both;
+  }
+
+  .scroll-line {
+    width: 1px; height: 40px;
+    background: linear-gradient(to bottom, var(--accent), transparent);
+    animation: scrollPulse 2s infinite;
+  }
+
+  @keyframes scrollPulse {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+  }
+
+  /* ── SECTIONS ── */
+  section {
+    padding: 100px 40px;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .section-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.3em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .section-label::before {
+    content: '';
+    display: block;
+    width: 30px; height: 1px;
+    background: var(--accent);
+  }
+
+  .section-title {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: clamp(1.8rem, 3vw, 2.8rem);
+    line-height: 1.1;
+    margin-bottom: 60px;
+  }
+
+  /* ── STATS ROW ── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    margin-bottom: 80px;
+  }
+
+  .stat-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 32px 24px;
+    position: relative;
+    overflow: hidden;
+    transition: border-color 0.3s, transform 0.3s;
+  }
+
+  .stat-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-4px);
+    box-shadow: var(--glow);
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .stat-card:hover::before { opacity: 1; }
+
+  .stat-num {
+    font-family: 'Syne', sans-serif;
+    font-size: 2.8rem;
+    font-weight: 800;
+    color: var(--accent);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+
+  .stat-num.green { color: var(--accent2); }
+  .stat-num.orange { color: var(--accent3); }
+
+  .stat-label {
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  .stat-sub {
+    font-size: 0.6rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+    opacity: 0.6;
+  }
+
+  /* corner decoration */
+  .stat-card .corner {
+    position: absolute;
+    bottom: 12px; right: 12px;
+    width: 20px; height: 20px;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* ── BIRD'S EYE VIEW ── */
+  #birdseye-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    padding: 60px;
+    margin-bottom: 80px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  #birdseye-section::before {
+    content: 'BIRD\'S EYE VIEW';
+    position: absolute;
+    top: 20px; right: 24px;
+    font-size: 0.55rem;
+    letter-spacing: 0.3em;
+    color: var(--border);
+  }
+
+  .birdseye-canvas-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/7;
+    background: #000;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  #birdseyeCanvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .be-legend {
+    display: flex;
+    gap: 24px;
+    margin-top: 20px;
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+  }
+
+  .be-legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .be-swatch {
+    width: 16px; height: 3px;
+    border-radius: 2px;
+  }
+
+  /* ── DETECTION PANEL ── */
+  .detection-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 80px;
+  }
+
+  .detection-panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 32px;
+    position: relative;
+  }
+
+  .panel-title {
+    font-size: 0.65rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .panel-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* Simulated US image with detection box */
+  .us-viewport {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 4/3;
+    background: #000;
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  #usCanvas { width: 100%; height: 100%; }
+
+  .detection-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  /* YOLOv5 detection box animation */
+  .yolo-box {
+    position: absolute;
+    border: 2px solid var(--accent2);
+    animation: boxScan 4s ease-in-out infinite;
+    box-shadow: 0 0 12px rgba(0,255,157,0.4), inset 0 0 12px rgba(0,255,157,0.05);
+  }
+
+  @keyframes boxScan {
+    0%, 100% { left: 35%; top: 35%; width: 30%; height: 25%; border-color: var(--accent2); box-shadow: 0 0 12px rgba(0,255,157,0.4); }
+    33% { left: 40%; top: 30%; width: 22%; height: 28%; border-color: var(--accent); box-shadow: 0 0 12px rgba(0,212,255,0.4); }
+    66% { left: 30%; top: 40%; width: 35%; height: 22%; border-color: var(--accent3); box-shadow: 0 0 12px rgba(255,107,53,0.4); }
+  }
+
+  .yolo-label {
+    position: absolute;
+    top: -22px; left: -1px;
+    font-size: 0.55rem;
+    letter-spacing: 0.1em;
+    padding: 2px 8px;
+    background: var(--accent2);
+    color: #000;
+    font-weight: 700;
+  }
+
+  .scan-line-anim {
+    position: absolute;
+    left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: scanMove 3s linear infinite;
+    opacity: 0.6;
+  }
+
+  @keyframes scanMove {
+    0% { top: 0; }
+    100% { top: 100%; }
+  }
+
+  /* corner brackets */
+  .corner-bracket {
+    position: absolute;
+    width: 20px; height: 20px;
+  }
+
+  .corner-bracket.tl { top: 8px; left: 8px; border-top: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+  .corner-bracket.tr { top: 8px; right: 8px; border-top: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+  .corner-bracket.bl { bottom: 8px; left: 8px; border-bottom: 2px solid var(--accent); border-left: 2px solid var(--accent); }
+  .corner-bracket.br { bottom: 8px; right: 8px; border-bottom: 2px solid var(--accent); border-right: 2px solid var(--accent); }
+
+  /* Confidence meter */
+  .conf-meter {
+    margin-top: 20px;
+  }
+
+  .conf-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+  }
+
+  .conf-label { color: var(--text-dim); width: 80px; flex-shrink: 0; }
+
+  .conf-bar-bg {
+    flex: 1;
+    height: 4px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .conf-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    animation: fillBar 2s ease-out forwards;
+    transform-origin: left;
+  }
+
+  @keyframes fillBar {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+  }
+
+  .conf-val { color: var(--accent2); width: 36px; text-align: right; flex-shrink: 0; }
+
+  /* ── CHARTS SECTION ── */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 24px;
+    margin-bottom: 80px;
+  }
+
+  .chart-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 28px;
+    position: relative;
+  }
+
+  .chart-card canvas { width: 100% !important; }
+
+  /* ── CLASS COMPARISON ── */
+  .class-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    margin-bottom: 80px;
+  }
+
+  .class-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 28px;
+    position: relative;
+    cursor: pointer;
+    transition: all 0.3s;
+  }
+
+  .class-card:hover, .class-card.active {
+    border-color: var(--accent);
+    box-shadow: var(--glow);
+    transform: translateY(-4px);
+  }
+
+  .class-card.active .class-icon { color: var(--accent); }
+
+  .class-icon {
+    font-size: 2rem;
+    margin-bottom: 12px;
+    color: var(--text-dim);
+    transition: color 0.3s;
+  }
+
+  .class-name {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 1rem;
+    margin-bottom: 6px;
+  }
+
+  .class-type {
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 16px;
+  }
+
+  .class-badge {
+    display: inline-block;
+    font-size: 0.55rem;
+    letter-spacing: 0.1em;
+    padding: 4px 10px;
+    background: rgba(0,212,255,0.1);
+    border: 1px solid var(--border);
+    color: var(--accent);
+  }
+
+  .class-badge.selected {
+    background: rgba(0,255,157,0.1);
+    border-color: var(--accent2);
+    color: var(--accent2);
+  }
+
+  /* ── PIPELINE ── */
+  .pipeline {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-bottom: 80px;
+    overflow-x: auto;
+    padding-bottom: 10px;
+  }
+
+  .pipe-step {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 24px 20px;
+    min-width: 160px;
+    text-align: center;
+    position: relative;
+    flex-shrink: 0;
+    transition: border-color 0.3s;
+  }
+
+  .pipe-step:hover { border-color: var(--accent); }
+
+  .pipe-step.active {
+    border-color: var(--accent2);
+    box-shadow: var(--glow2);
+  }
+
+  .pipe-num {
+    font-size: 0.55rem;
+    letter-spacing: 0.15em;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  .pipe-name {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.8rem;
+    color: var(--text);
+  }
+
+  .pipe-detail {
+    font-size: 0.55rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  .pipe-arrow {
+    color: var(--accent);
+    font-size: 1.2rem;
+    flex-shrink: 0;
+    padding: 0 8px;
+    opacity: 0.5;
+  }
+
+  /* animated progress indicator for pipeline */
+  .pipe-step.active::before {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent2);
+    animation: pipeProgress 3s ease-in-out infinite;
+  }
+
+  @keyframes pipeProgress {
+    0% { transform: scaleX(0); transform-origin: left; }
+    50% { transform: scaleX(1); transform-origin: left; }
+    51% { transform: scaleX(1); transform-origin: right; }
+    100% { transform: scaleX(0); transform-origin: right; }
+  }
+
+  /* ── TERMINAL LOG ── */
+  .terminal {
+    background: #000;
+    border: 1px solid var(--border);
+    padding: 24px;
+    font-size: 0.65rem;
+    line-height: 2;
+    height: 220px;
+    overflow: hidden;
+    position: relative;
+    margin-bottom: 80px;
+  }
+
+  .terminal::before {
+    content: '● SYSTEM LOG — YOLOV5 INFERENCE';
+    display: block;
+    color: var(--accent);
+    margin-bottom: 12px;
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+  }
+
+  .log-line { color: var(--text-dim); }
+  .log-line .ts { color: var(--text-dim); opacity: 0.5; }
+  .log-line .ok { color: var(--accent2); }
+  .log-line .val { color: var(--accent); }
+  .log-line .warn { color: var(--accent3); }
+  .log-line .err { color: #ff4444; }
+
+  .cursor-blink {
+    display: inline-block;
+    width: 7px; height: 13px;
+    background: var(--accent);
+    animation: blink 1s step-end infinite;
+    vertical-align: middle;
+    margin-left: 4px;
+  }
+
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 32px 40px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
+  }
+
+  /* ── SCROLLBAR ── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* RESPONSIVE */
+  @media (max-width: 900px) {
+    .stats-row { grid-template-columns: 1fr 1fr; }
+    .detection-grid { grid-template-columns: 1fr; }
+    .charts-grid { grid-template-columns: 1fr; }
+    .class-grid { grid-template-columns: 1fr 1fr; }
+    header { padding: 14px 20px; }
+    section { padding: 60px 20px; }
+  }
+
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="logo">US<span>MicroMag</span>Set</div>
+  <div class="status-bar">
+    <div class="status-item"><div class="dot"></div> MODEL ACTIVE</div>
+    <div class="status-item"><div class="dot blue"></div> YOLOv5 v6.2</div>
+    <div class="status-item"><div class="dot orange"></div> TARGET: CYLINDER</div>
+    <div class="status-item" id="clockEl">02:33:47 UTC</div>
+  </div>
+</header>
+
+<!-- HERO -->
+<div id="hero">
+  <div class="grid-bg"></div>
+  <div class="radar-container">
+    <div class="radar-ring"></div>
+    <div class="radar-ring"></div>
+    <div class="radar-ring"></div>
+    <div class="radar-ring"></div>
+  </div>
+  <div class="particles" id="particles"></div>
+
+  <div class="hero-content">
+    <div class="hero-tag">// Deep Learning · Ultrasound Imaging · Microrobotics</div>
+    <h1 class="hero-title">
+      <span class="highlight">Cylinder</span><br>
+      <span class="highlight2">Microrobot</span><br>
+      Detection System
+    </h1>
+    <p class="hero-sub">
+      YOLOv5-powered detection of SMF-class cylinder microrobots<br>
+      in microfluidic channels via 14L5 SP ultrasound imaging.
+    </p>
+    <div class="hero-cta">
+      <button class="btn btn-primary" onclick="document.getElementById('dashboard').scrollIntoView({behavior:'smooth'})">VIEW DASHBOARD</button>
+      <button class="btn btn-outline" onclick="document.getElementById('pipeline-sec').scrollIntoView({behavior:'smooth'})">DETECTION PIPELINE</button>
+    </div>
+  </div>
+
+  <div class="scroll-hint">
+    <div class="scroll-line"></div>
+    SCROLL
+  </div>
+</div>
+
+<!-- DASHBOARD -->
+<div id="dashboard">
+<section>
+  <div class="section-label">01 — OVERVIEW</div>
+  <h2 class="section-title">Dataset &amp; Model Metrics</h2>
+
+  <div class="stats-row">
+    <div class="stat-card">
+      <div class="stat-num" id="stat1">0</div>
+      <div class="stat-label">Total Images</div>
+      <div class="stat-sub">Extracted from 10-min videos</div>
+      <div class="corner"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num green" id="stat2">0</div>
+      <div class="stat-label">Cylinder Class Images</div>
+      <div class="stat-sub">SMF locomotion principal</div>
+      <div class="corner"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num" id="stat3">0</div>
+      <div class="stat-label">mAP@0.5</div>
+      <div class="stat-sub">YOLOv5 detection accuracy</div>
+      <div class="corner"></div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-num orange" id="stat4">0</div>
+      <div class="stat-label">Inference Speed</div>
+      <div class="stat-sub">ms per frame (GPU)</div>
+      <div class="corner"></div>
+    </div>
+  </div>
+
+  <!-- BIRD'S EYE VIEW -->
+  <div id="birdseye-section">
+    <div class="section-label" style="margin-bottom:20px;">02 — BIRD'S EYE TRAJECTORY VIEW</div>
+    <p style="font-size:0.65rem;color:var(--text-dim);margin-bottom:20px;letter-spacing:0.05em;">Real-time simulation of cylinder microrobot trajectories inside microfluidic channel — forward &amp; backward passes</p>
+    <div class="birdseye-canvas-wrap">
+      <canvas id="birdseyeCanvas"></canvas>
+    </div>
+    <div class="be-legend">
+      <div class="be-legend-item"><div class="be-swatch" style="background:var(--accent2)"></div> Cylinder (SMF) — Forward</div>
+      <div class="be-legend-item"><div class="be-swatch" style="background:var(--accent)"></div> Detection BBox</div>
+      <div class="be-legend-item"><div class="be-swatch" style="background:rgba(0,212,255,0.2)"></div> Microfluidic Channel</div>
+      <div class="be-legend-item"><div class="be-swatch" style="background:var(--accent3)"></div> Cylinder — Backward</div>
+    </div>
+  </div>
+</section>
+
+<!-- DETECTION VIEWER -->
+<section>
+  <div class="section-label">03 — LIVE DETECTION</div>
+  <h2 class="section-title">Ultrasound Frame Analyzer</h2>
+
+  <div class="detection-grid">
+    <!-- US Viewer -->
+    <div class="detection-panel">
+      <div class="panel-title">Simulated US Frame — Cylinder Detection</div>
+      <div class="us-viewport">
+        <canvas id="usCanvas"></canvas>
+        <div class="detection-overlay">
+          <div class="yolo-box" style="left:35%;top:35%;width:30%;height:25%">
+            <div class="yolo-label">CYLINDER 0.94</div>
+          </div>
+          <div class="scan-line-anim"></div>
+          <div class="corner-bracket tl"></div>
+          <div class="corner-bracket tr"></div>
+          <div class="corner-bracket bl"></div>
+          <div class="corner-bracket br"></div>
+        </div>
+      </div>
+      <div style="margin-top:12px;font-size:0.6rem;color:var(--text-dim);display:flex;gap:20px;">
+        <span>Probe: <span style="color:var(--accent)">14L5 SP</span></span>
+        <span>Freq: <span style="color:var(--accent)">14 MHz</span></span>
+        <span>Depth: <span style="color:var(--accent)">25mm</span></span>
+        <span>FPS: <span style="color:var(--accent2)" id="fpsEl">24</span></span>
+      </div>
+    </div>
+
+    <!-- Confidence & Metrics -->
+    <div class="detection-panel">
+      <div class="panel-title">Model Confidence Metrics</div>
+      <div class="conf-meter">
+        <div class="conf-row">
+          <span class="conf-label">Precision</span>
+          <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:91%;animation-delay:0.1s"></div></div>
+          <span class="conf-val">0.91</span>
+        </div>
+        <div class="conf-row">
+          <span class="conf-label">Recall</span>
+          <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:88%;animation-delay:0.3s;background:linear-gradient(90deg,var(--accent2),#00ffcc)"></div></div>
+          <span class="conf-val">0.88</span>
+        </div>
+        <div class="conf-row">
+          <span class="conf-label">mAP@0.5</span>
+          <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:93%;animation-delay:0.5s"></div></div>
+          <span class="conf-val">0.93</span>
+        </div>
+        <div class="conf-row">
+          <span class="conf-label">mAP@0.95</span>
+          <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:71%;animation-delay:0.7s;background:linear-gradient(90deg,var(--accent3),#ffaa00)"></div></div>
+          <span class="conf-val">0.71</span>
+        </div>
+        <div class="conf-row">
+          <span class="conf-label">F1 Score</span>
+          <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:89%;animation-delay:0.9s;background:linear-gradient(90deg,var(--accent),var(--accent2))"></div></div>
+          <span class="conf-val">0.89</span>
+        </div>
+        <div class="conf-row">
+          <span class="conf-label">IoU</span>
+          <div class="conf-bar-bg"><div class="conf-bar-fill" style="width:85%;animation-delay:1.1s;background:linear-gradient(90deg,var(--accent2),var(--accent))"></div></div>
+          <span class="conf-val">0.85</span>
+        </div>
+      </div>
+
+      <div style="margin-top:28px;padding-top:20px;border-top:1px solid var(--border)">
+        <div class="panel-title" style="font-size:0.6rem;">Live Detection Output</div>
+        <div style="font-size:0.6rem;line-height:2.2;color:var(--text-dim);" id="liveOutput">
+          <div>Frame: <span style="color:var(--accent)" id="frameNum">0012</span></div>
+          <div>Objects: <span style="color:var(--accent2)">1 Cylinder</span></div>
+          <div>BBox: <span style="color:var(--text)">[214, 183, 298, 241]</span></div>
+          <div>Confidence: <span style="color:var(--accent2)" id="confEl">0.942</span></div>
+          <div>Class: <span style="color:var(--accent)">SMF — Cylinder</span></div>
+          <div>Locomotion: <span style="color:var(--accent3)">Steering Magnetic Field</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CHARTS -->
+<section>
+  <div class="section-label">04 — ANALYTICS</div>
+  <h2 class="section-title">Training &amp; Performance Analytics</h2>
+
+  <div class="charts-grid">
+    <div class="chart-card">
+      <div class="panel-title">Loss Curve — Training</div>
+      <canvas id="lossChart" height="200"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="panel-title">mAP Progress</div>
+      <canvas id="mapChart" height="200"></canvas>
+    </div>
+    <div class="chart-card">
+      <div class="panel-title">Class Distribution</div>
+      <canvas id="distChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- Precision-Recall Curve -->
+  <div class="chart-card" style="margin-bottom:80px;">
+    <div class="panel-title">Precision-Recall Curve — Cylinder Class</div>
+    <canvas id="prChart" height="120"></canvas>
+  </div>
+</section>
+
+<!-- MICROROBOT CLASSES -->
+<section>
+  <div class="section-label">05 — DATASET CLASSES</div>
+  <h2 class="section-title">All 8 Microrobot Classes</h2>
+
+  <div class="class-grid">
+    <div class="class-card active" onclick="selectClass(this)">
+      <div class="class-icon">⬤</div>
+      <div class="class-name">Sphere</div>
+      <div class="class-type">SMF — Steering Magnetic Field</div>
+      <div class="class-badge">CLASS 0</div>
+    </div>
+    <div class="class-card active" onclick="selectClass(this)">
+      <div class="class-icon">⬛</div>
+      <div class="class-name">Cube</div>
+      <div class="class-type">SMF — Steering Magnetic Field</div>
+      <div class="class-badge">CLASS 1</div>
+    </div>
+    <div class="class-card active" onclick="selectClass(this)" style="border-color:var(--accent2);box-shadow:var(--glow2)">
+      <div class="class-icon" style="color:var(--accent2)">⬭</div>
+      <div class="class-name">Cylinder</div>
+      <div class="class-type">SMF — Steering Magnetic Field</div>
+      <div class="class-badge selected">CLASS 2 — TARGET ✓</div>
+    </div>
+    <div class="class-card" onclick="selectClass(this)">
+      <div class="class-icon">〰</div>
+      <div class="class-name">Helical</div>
+      <div class="class-type">RMF — Rotating Magnetic Field</div>
+      <div class="class-badge">CLASS 3</div>
+    </div>
+    <div class="class-card" onclick="selectClass(this)">
+      <div class="class-icon">〜</div>
+      <div class="class-name">Soft Sheet</div>
+      <div class="class-type">RMF — Rotating Magnetic Field</div>
+      <div class="class-badge">CLASS 4</div>
+    </div>
+    <div class="class-card" onclick="selectClass(this)">
+      <div class="class-icon">⬕</div>
+      <div class="class-name">Rolling Cube</div>
+      <div class="class-type">RMF — Rotating Magnetic Field</div>
+      <div class="class-badge">CLASS 5</div>
+    </div>
+    <div class="class-card" onclick="selectClass(this)">
+      <div class="class-icon">⌇</div>
+      <div class="class-name">Flagella</div>
+      <div class="class-type">OMF — Oscillating Magnetic Field</div>
+      <div class="class-badge">CLASS 6</div>
+    </div>
+    <div class="class-card" onclick="selectClass(this)">
+      <div class="class-icon">⠿</div>
+      <div class="class-name">Chainlike (Sphere3)</div>
+      <div class="class-type">OMF — Oscillating Magnetic Field</div>
+      <div class="class-badge">CLASS 7</div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════════════════════
+     REAL YOLOV5 INFERENCE SECTION
+════════════════════════════════════════════════ -->
+<div id="inference-sec">
+<section>
+  <div class="section-label">🔬 LIVE MODEL — REAL INFERENCE</div>
+  <h2 class="section-title">YOLOv5 Model Inference</h2>
+  <p style="font-size:0.7rem;color:var(--text-dim);margin-bottom:40px;line-height:1.8;">
+    Connect to your local <span style="color:var(--accent)">Flask backend</span> running <code style="color:var(--accent2)">app.py</code>, 
+    then upload any ultrasound image to run real cylinder detection with your trained weights.
+  </p>
+
+  <!-- Connection Panel -->
+  <div id="inferencePanel" style="background:var(--surface);border:1px solid var(--border);padding:40px;margin-bottom:40px;position:relative;">
+    <div style="position:absolute;top:16px;right:20px;font-size:0.55rem;letter-spacing:0.2em;color:var(--text-dim);">BACKEND CONNECTION</div>
+
+    <!-- Server URL row -->
+    <div style="display:flex;gap:12px;align-items:center;margin-bottom:24px;flex-wrap:wrap;">
+      <span style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.1em;flex-shrink:0;">SERVER URL</span>
+      <input id="serverUrl" type="text" value="http://localhost:5000"
+        style="flex:1;min-width:200px;background:var(--panel);border:1px solid var(--border);color:var(--text);
+               font-family:'Space Mono',monospace;font-size:0.7rem;padding:10px 14px;outline:none;
+               transition:border-color 0.2s;"
+        onfocus="this.style.borderColor='var(--accent)'"
+        onblur="this.style.borderColor='var(--border)'"
+        placeholder="http://localhost:5000" />
+      <button class="btn btn-outline" id="checkBtn" onclick="checkServerStatus()" style="flex-shrink:0;padding:10px 24px;">
+        CONNECT
+      </button>
+    </div>
+
+    <!-- Status badge -->
+    <div id="serverStatus" style="display:flex;align-items:center;gap:10px;font-size:0.65rem;letter-spacing:0.1em;padding:12px 16px;
+         background:var(--panel);border:1px solid var(--border);margin-bottom:32px;">
+      <div id="statusDot" style="width:8px;height:8px;border-radius:50%;background:var(--text-dim);flex-shrink:0;"></div>
+      <span id="statusText" style="color:var(--text-dim);">Not connected — click CONNECT to check backend</span>
+    </div>
+
+    <!-- Server info cards -->
+    <div id="serverInfo" style="display:none;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px;" class="stats-row">
+      <div class="stat-card" style="padding:20px;">
+        <div class="stat-num" style="font-size:1.4rem;" id="si-device">—</div>
+        <div class="stat-label">Compute Device</div>
+      </div>
+      <div class="stat-card" style="padding:20px;">
+        <div class="stat-num green" style="font-size:1.4rem;" id="si-conf">—</div>
+        <div class="stat-label">Conf Threshold</div>
+      </div>
+      <div class="stat-card" style="padding:20px;">
+        <div class="stat-num" style="font-size:1.4rem;" id="si-iou">—</div>
+        <div class="stat-label">IoU Threshold</div>
+      </div>
+      <div class="stat-card" style="padding:20px;">
+        <div class="stat-num orange" style="font-size:1.4rem;" id="si-model">—</div>
+        <div class="stat-label">Weights Loaded</div>
+      </div>
+    </div>
+
+    <!-- Upload Zone -->
+    <div id="uploadSection" style="display:none;">
+      <div class="panel-title">Upload Ultrasound Image</div>
+
+      <div id="dropZone"
+        style="border:2px dashed var(--border);padding:48px;text-align:center;cursor:pointer;
+               transition:all 0.3s;background:var(--panel);position:relative;overflow:hidden;"
+        onclick="document.getElementById('imageInput').click()"
+        ondragover="event.preventDefault();this.style.borderColor='var(--accent)';this.style.background='rgba(0,212,255,0.05)'"
+        ondragleave="this.style.borderColor='var(--border)';this.style.background='var(--panel)'"
+        ondrop="handleDrop(event)">
+        <div id="dropContent">
+          <div style="font-size:2rem;margin-bottom:12px;color:var(--text-dim);">⬆</div>
+          <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:0.9rem;margin-bottom:8px;color:var(--text);">
+            DROP IMAGE HERE or CLICK TO BROWSE
+          </div>
+          <div style="font-size:0.6rem;color:var(--text-dim);letter-spacing:0.1em;">
+            Supports JPG, PNG, BMP — Ultrasound frames recommended
+          </div>
+        </div>
+        <input type="file" id="imageInput" accept="image/*" style="display:none" onchange="handleFileSelect(event)">
+      </div>
+
+      <!-- Confidence & IOU sliders -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:20px;">
+        <div>
+          <label style="font-size:0.6rem;letter-spacing:0.15em;color:var(--text-dim);display:block;margin-bottom:8px;">
+            CONFIDENCE THRESHOLD: <span id="confThreshVal" style="color:var(--accent)">0.25</span>
+          </label>
+          <input type="range" id="confThresh" min="0.05" max="0.95" step="0.05" value="0.25"
+            oninput="document.getElementById('confThreshVal').textContent=parseFloat(this.value).toFixed(2)"
+            style="width:100%;accent-color:var(--accent);">
+        </div>
+        <div>
+          <label style="font-size:0.6rem;letter-spacing:0.15em;color:var(--text-dim);display:block;margin-bottom:8px;">
+            IOU THRESHOLD: <span id="iouThreshVal" style="color:var(--accent2)">0.45</span>
+          </label>
+          <input type="range" id="iouThresh" min="0.1" max="0.9" step="0.05" value="0.45"
+            oninput="document.getElementById('iouThreshVal').textContent=parseFloat(this.value).toFixed(2)"
+            style="width:100%;accent-color:var(--accent2);">
+        </div>
+      </div>
+
+      <button class="btn btn-primary" id="runBtn" onclick="runInference()"
+        style="margin-top:24px;width:100%;padding:16px;font-size:0.75rem;display:none;">
+        ▶ RUN YOLOV5 INFERENCE
+      </button>
+    </div>
+  </div>
+
+  <!-- Results Panel -->
+  <div id="resultsPanel" style="display:none;">
+    <div style="background:var(--surface);border:1px solid var(--accent2);padding:40px;position:relative;">
+      <div style="position:absolute;top:16px;right:20px;font-size:0.55rem;letter-spacing:0.2em;color:var(--accent2);">INFERENCE RESULT</div>
+
+      <!-- Inference stats bar -->
+      <div id="inferenceStats" style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:32px;padding:16px;
+           background:var(--panel);border:1px solid var(--border);">
+        <div style="font-size:0.65rem;color:var(--text-dim);">DETECTIONS: <span id="res-count" style="color:var(--accent2);font-family:'Syne',sans-serif;font-weight:700;">—</span></div>
+        <div style="font-size:0.65rem;color:var(--text-dim);">INFERENCE: <span id="res-ms" style="color:var(--accent)">—</span></div>
+        <div style="font-size:0.65rem;color:var(--text-dim);">DEVICE: <span id="res-device" style="color:var(--accent)">—</span></div>
+        <div style="font-size:0.65rem;color:var(--text-dim);">IMAGE: <span id="res-size" style="color:var(--text)">—</span></div>
+        <div style="font-size:0.65rem;color:var(--text-dim);">BEST CONF: <span id="res-bestconf" style="color:var(--accent2)">—</span></div>
+      </div>
+
+      <!-- Image comparison -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-bottom:32px;">
+        <div>
+          <div class="panel-title">Original Frame</div>
+          <div style="background:#000;border:1px solid var(--border);position:relative;overflow:hidden;">
+            <img id="origImg" src="" alt="Original" style="width:100%;display:block;">
+            <div style="position:absolute;top:8px;left:8px;font-size:0.55rem;letter-spacing:0.1em;
+                 background:rgba(0,0,0,0.7);color:var(--text-dim);padding:4px 8px;">INPUT</div>
+          </div>
+        </div>
+        <div>
+          <div class="panel-title">Annotated — YOLOv5 Output</div>
+          <div style="background:#000;border:1px solid var(--accent2);position:relative;overflow:hidden;box-shadow:var(--glow2);">
+            <img id="annotImg" src="" alt="Annotated" style="width:100%;display:block;">
+            <div style="position:absolute;top:8px;left:8px;font-size:0.55rem;letter-spacing:0.1em;
+                 background:rgba(0,0,0,0.7);color:var(--accent2);padding:4px 8px;">PREDICTED ✓</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detection table -->
+      <div id="detTable" style="display:none;">
+        <div class="panel-title">Detection Results Table</div>
+        <table id="detTableEl" style="width:100%;border-collapse:collapse;font-size:0.65rem;">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border);">
+              <th style="padding:10px 12px;text-align:left;color:var(--accent);letter-spacing:0.1em;">#</th>
+              <th style="padding:10px 12px;text-align:left;color:var(--accent);letter-spacing:0.1em;">CLASS</th>
+              <th style="padding:10px 12px;text-align:left;color:var(--accent);letter-spacing:0.1em;">CONFIDENCE</th>
+              <th style="padding:10px 12px;text-align:left;color:var(--accent);letter-spacing:0.1em;">BBOX [x1,y1,x2,y2]</th>
+              <th style="padding:10px 12px;text-align:left;color:var(--accent);letter-spacing:0.1em;">WIDTH × HEIGHT</th>
+            </tr>
+          </thead>
+          <tbody id="detTableBody"></tbody>
+        </table>
+      </div>
+
+      <!-- No detections message -->
+      <div id="noDetMsg" style="display:none;text-align:center;padding:40px;color:var(--text-dim);font-size:0.7rem;">
+        <div style="font-size:2rem;margin-bottom:12px;">◎</div>
+        No cylinders detected above confidence threshold.<br>
+        <span style="font-size:0.6rem;">Try lowering the confidence threshold and run again.</span>
+      </div>
+
+      <!-- Try another button -->
+      <div style="margin-top:24px;display:flex;gap:12px;">
+        <button class="btn btn-outline" onclick="resetInference()" style="flex:1;padding:14px;">
+          ↺ ANALYZE ANOTHER IMAGE
+        </button>
+        <button class="btn btn-primary" onclick="downloadResult()" style="flex:1;padding:14px;" id="downloadBtn">
+          ↓ DOWNLOAD RESULT
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading overlay -->
+  <div id="loadingOverlay" style="display:none;text-align:center;padding:80px;background:var(--surface);border:1px solid var(--border);">
+    <div id="loadingSpinner" style="width:60px;height:60px;border:2px solid var(--border);border-top-color:var(--accent);
+         border-radius:50%;margin:0 auto 24px;animation:spin 1s linear infinite;"></div>
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:1rem;color:var(--accent);margin-bottom:8px;">
+      RUNNING INFERENCE
+    </div>
+    <div style="font-size:0.65rem;color:var(--text-dim);letter-spacing:0.1em;" id="loadingMsg">
+      Sending image to YOLOv5 model…
+    </div>
+  </div>
+
+</section>
+</div>
+
+<style>
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#dropZone:hover {
+  border-color: var(--accent) !important;
+  background: rgba(0,212,255,0.04) !important;
+}
+
+#detTableBody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.2s;
+}
+#detTableBody tr:hover { background: rgba(0,212,255,0.05); }
+#detTableBody td { padding: 10px 12px; color: var(--text); }
+#detTableBody td:nth-child(3) { color: var(--accent2); }
+#detTableBody td:nth-child(1) { color: var(--text-dim); }
+
+input[type=range] {
+  -webkit-appearance: none;
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  cursor: pointer;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg);
+}
+</style>
+
+<!-- PIPELINE -->
+<div id="pipeline-sec">
+<section>
+  <div class="section-label">06 — PROCESSING PIPELINE</div>
+  <h2 class="section-title">YOLOv5 Detection Pipeline</h2>
+
+  <div class="pipeline">
+    <div class="pipe-step">
+      <div class="pipe-num">STEP 01</div>
+      <div class="pipe-name">US VIDEO</div>
+      <div class="pipe-detail">14L5 SP probe · 10 min</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-num">STEP 02</div>
+      <div class="pipe-name">FRAME EXTRACT</div>
+      <div class="pipe-detail">40K images · 640×480</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-num">STEP 03</div>
+      <div class="pipe-name">ANNOTATION</div>
+      <div class="pipe-detail">YOLO bbox labels</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step active">
+      <div class="pipe-num">STEP 04</div>
+      <div class="pipe-name">YOLOv5 TRAIN</div>
+      <div class="pipe-detail">Cylinder class · 300 epochs</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-num">STEP 05</div>
+      <div class="pipe-name">VALIDATION</div>
+      <div class="pipe-detail">mAP 0.93 achieved</div>
+    </div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-step">
+      <div class="pipe-num">STEP 06</div>
+      <div class="pipe-name">INFERENCE</div>
+      <div class="pipe-detail">Real-time · &lt;8ms/frame</div>
+    </div>
+  </div>
+
+  <!-- Terminal -->
+  <div class="terminal" id="terminal">
+  </div>
+</section>
+</div>
+</div>
+
+<footer>
+  <div>USMicroMagSet © 2024 — Deep Learning Microrobot Detection</div>
+  <div>YOLOv5 · PyTorch · Siemens 14L5 SP · 40K Ultrasound Images</div>
+  <div style="color:var(--accent)">SMF CLASS: CYLINDER ◆ ACTIVE</div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+// ── CLOCK ──
+function updateClock() {
+  const d = new Date();
+  document.getElementById('clockEl').textContent =
+    d.getUTCHours().toString().padStart(2,'0') + ':' +
+    d.getUTCMinutes().toString().padStart(2,'0') + ':' +
+    d.getUTCSeconds().toString().padStart(2,'0') + ' UTC';
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ── PARTICLES ──
+const pCont = document.getElementById('particles');
+for (let i = 0; i < 30; i++) {
+  const p = document.createElement('div');
+  p.className = 'particle';
+  p.style.cssText = `
+    left: ${Math.random()*100}%;
+    --dx: ${(Math.random()-0.5)*200}px;
+    animation-duration: ${4 + Math.random()*8}s;
+    animation-delay: ${Math.random()*6}s;
+    opacity: ${0.3 + Math.random()*0.7};
+    background: ${Math.random() > 0.5 ? 'var(--accent)' : 'var(--accent2)'};
+  `;
+  pCont.appendChild(p);
+}
+
+// ── COUNTER ANIMATION ──
+function animateCounter(el, end, duration, suffix='') {
+  let start = 0;
+  const step = end / (duration / 16);
+  const timer = setInterval(() => {
+    start = Math.min(start + step, end);
+    el.textContent = suffix === '%' ? start.toFixed(1) + '%' :
+                     suffix === 'ms' ? Math.round(start) + 'ms' :
+                     Math.round(start).toLocaleString();
+    if (start >= end) clearInterval(timer);
+  }, 16);
+}
+
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting && e.target.id === 'dashboard') {
+      setTimeout(() => animateCounter(document.getElementById('stat1'), 40000, 1500), 0);
+      setTimeout(() => animateCounter(document.getElementById('stat2'), 5000, 1200), 200);
+      document.getElementById('stat3').parentElement.querySelector('.stat-num').textContent = '93.2%';
+      setTimeout(() => {
+        document.getElementById('stat3').textContent = '0%';
+        animateCounter(document.getElementById('stat3'), 93.2, 1200, '%');
+      }, 400);
+      document.getElementById('stat4').textContent = '0ms';
+      setTimeout(() => animateCounter(document.getElementById('stat4'), 7, 1000, 'ms'), 600);
+      observer.unobserve(e.target);
+    }
+  });
+});
+observer.observe(document.getElementById('dashboard'));
+
+// ── BIRD'S EYE VIEW ──
+const beCanvas = document.getElementById('birdseyeCanvas');
+const beCtx = beCanvas.getContext('2d');
+
+function resizeBE() {
+  beCanvas.width = beCanvas.offsetWidth;
+  beCanvas.height = beCanvas.offsetHeight;
+}
+
+window.addEventListener('resize', resizeBE);
+
+// Robots
+const robots = [
+  { x: 0.05, y: 0.4, dx: 0.002, color: '#00ff9d', trail: [], label: 'CYL-01' },
+  { x: 0.9,  y: 0.55, dx: -0.0015, color: '#ff6b35', trail: [], label: 'CYL-02' },
+  { x: 0.5,  y: 0.7, dx: 0.0025, color: '#00d4ff', trail: [], label: 'CYL-03' },
+];
+
+function drawBirdsEye() {
+  resizeBE();
+  const W = beCanvas.width, H = beCanvas.height;
+  beCtx.fillStyle = '#000';
+  beCtx.fillRect(0, 0, W, H);
+
+  // Grid
+  beCtx.strokeStyle = 'rgba(0,212,255,0.06)';
+  beCtx.lineWidth = 1;
+  for (let x = 0; x < W; x += 40) { beCtx.beginPath(); beCtx.moveTo(x,0); beCtx.lineTo(x,H); beCtx.stroke(); }
+  for (let y = 0; y < H; y += 40) { beCtx.beginPath(); beCtx.moveTo(0,y); beCtx.lineTo(W,y); beCtx.stroke(); }
+
+  // Channel walls
+  const ch1 = H * 0.2, ch2 = H * 0.8;
+  beCtx.fillStyle = 'rgba(0,212,255,0.04)';
+  beCtx.fillRect(0, ch1, W, ch2 - ch1);
+  beCtx.strokeStyle = 'rgba(0,212,255,0.3)';
+  beCtx.lineWidth = 2;
+  beCtx.setLineDash([8, 4]);
+  beCtx.beginPath(); beCtx.moveTo(0, ch1); beCtx.lineTo(W, ch1); beCtx.stroke();
+  beCtx.beginPath(); beCtx.moveTo(0, ch2); beCtx.lineTo(W, ch2); beCtx.stroke();
+  beCtx.setLineDash([]);
+
+  // Channel label
+  beCtx.fillStyle = 'rgba(0,212,255,0.3)';
+  beCtx.font = '11px Space Mono, monospace';
+  beCtx.fillText('MICROFLUIDIC CHANNEL', 16, ch1 - 8);
+
+  // Ruler
+  beCtx.fillStyle = 'rgba(0,212,255,0.2)';
+  beCtx.font = '9px Space Mono, monospace';
+  for (let i = 0; i <= 10; i++) {
+    const rx = W * 0.05 + i * (W * 0.9 / 10);
+    beCtx.fillStyle = 'rgba(0,212,255,0.3)';
+    beCtx.fillRect(rx, H - 20, 1, 8);
+    beCtx.fillStyle = 'rgba(0,212,255,0.4)';
+    beCtx.fillText(i + 'mm', rx - 6, H - 6);
+  }
+
+  // Update + draw robots
+  robots.forEach(r => {
+    r.x += r.dx;
+    if (r.x > 1.05 || r.x < -0.05) r.dx *= -1;
+
+    const rx = r.x * W, ry = r.y * H;
+    r.trail.push({ x: rx, y: ry });
+    if (r.trail.length > 80) r.trail.shift();
+
+    // Trail
+    if (r.trail.length > 1) {
+      beCtx.beginPath();
+      r.trail.forEach((pt, i) => {
+        i === 0 ? beCtx.moveTo(pt.x, pt.y) : beCtx.lineTo(pt.x, pt.y);
+      });
+      beCtx.strokeStyle = r.color + '55';
+      beCtx.lineWidth = 1.5;
+      beCtx.setLineDash([3, 3]);
+      beCtx.stroke();
+      beCtx.setLineDash([]);
+    }
+
+    // Detection box
+    const bw = 36, bh = 16;
+    beCtx.strokeStyle = r.color;
+    beCtx.lineWidth = 1.5;
+    beCtx.strokeRect(rx - bw/2, ry - bh/2, bw, bh);
+
+    // Corners
+    const cs = 6;
+    beCtx.strokeStyle = r.color;
+    beCtx.lineWidth = 2;
+    [[rx-bw/2,ry-bh/2,cs,0,0,cs],[rx+bw/2,ry-bh/2,-cs,0,0,cs],
+     [rx-bw/2,ry+bh/2,cs,0,0,-cs],[rx+bw/2,ry+bh/2,-cs,0,0,-cs]].forEach(([x,y,dx1,dy1,dx2,dy2]) => {
+      beCtx.beginPath(); beCtx.moveTo(x+dx1,y); beCtx.lineTo(x,y); beCtx.lineTo(x,y+dy2); beCtx.stroke();
+    });
+
+    // Robot body (cylinder top view = ellipse)
+    beCtx.fillStyle = r.color + '80';
+    beCtx.beginPath();
+    beCtx.ellipse(rx, ry, 14, 6, 0, 0, Math.PI*2);
+    beCtx.fill();
+    beCtx.strokeStyle = r.color;
+    beCtx.lineWidth = 1.5;
+    beCtx.stroke();
+
+    // Glow
+    const grd = beCtx.createRadialGradient(rx, ry, 0, rx, ry, 20);
+    grd.addColorStop(0, r.color + '40');
+    grd.addColorStop(1, 'transparent');
+    beCtx.fillStyle = grd;
+    beCtx.fillRect(rx-20, ry-20, 40, 40);
+
+    // Label
+    beCtx.fillStyle = r.color;
+    beCtx.font = 'bold 9px Space Mono, monospace';
+    beCtx.fillText(r.label, rx - 14, ry - bh/2 - 6);
+
+    // Confidence badge
+    const conf = (0.88 + Math.random() * 0.1).toFixed(2);
+    beCtx.fillStyle = 'rgba(0,0,0,0.7)';
+    beCtx.fillRect(rx + bw/2 + 2, ry - 8, 42, 14);
+    beCtx.fillStyle = r.color;
+    beCtx.font = '8px Space Mono, monospace';
+    beCtx.fillText('▸ ' + conf, rx + bw/2 + 4, ry + 2);
+  });
+
+  // Frame counter
+  beCtx.fillStyle = 'rgba(0,0,0,0.6)';
+  beCtx.fillRect(8, 8, 180, 18);
+  beCtx.fillStyle = '#00d4ff';
+  beCtx.font = '9px Space Mono, monospace';
+  beCtx.fillText('FRAME: ' + String(Math.floor(Date.now()/42) % 9999).padStart(4,'0') + '  |  TRACKING: 3 OBJECTS', 12, 21);
+
+  requestAnimationFrame(drawBirdsEye);
+}
+drawBirdsEye();
+
+// ── US CANVAS (simulated ultrasound) ──
+const usCanvas = document.getElementById('usCanvas');
+const usCtx = usCanvas.getContext('2d');
+
+function resizeUS() {
+  usCanvas.width = usCanvas.offsetWidth;
+  usCanvas.height = usCanvas.offsetHeight;
+}
+resizeUS(); window.addEventListener('resize', resizeUS);
+
+let usOffset = 0;
+function drawUS() {
+  const W = usCanvas.width, H = usCanvas.height;
+  usCtx.fillStyle = '#000';
+  usCtx.fillRect(0, 0, W, H);
+  usOffset += 0.3;
+
+  // US speckle noise
+  for (let y = 0; y < H; y += 2) {
+    for (let x = 0; x < W; x += 2) {
+      const v = Math.random() * 40 + (y < H*0.12 || y > H*0.88 ? 60 : 0);
+      usCtx.fillStyle = `rgb(${v},${v},${v})`;
+      usCtx.fillRect(x, y, 2, 2);
+    }
+  }
+
+  // Channel walls
+  const cTop = H * 0.15, cBot = H * 0.85;
+  const wallGrd = usCtx.createLinearGradient(0, cTop-8, 0, cTop+8);
+  wallGrd.addColorStop(0, '#fff'); wallGrd.addColorStop(1, '#555');
+  usCtx.fillStyle = wallGrd;
+  usCtx.fillRect(0, cTop - 6, W, 12);
+  usCtx.fillRect(0, cBot - 6, W, 12);
+
+  // Background speckle in channel
+  usCtx.fillStyle = 'rgba(20,40,60,0.3)';
+  usCtx.fillRect(0, cTop+6, W, cBot-cTop-12);
+
+  // Cylinder microrobot
+  const rx = W * 0.45 + Math.sin(usOffset * 0.02) * W * 0.05;
+  const ry = H * 0.5;
+  // Bright hyperechoic appearance
+  const cGrd = usCtx.createRadialGradient(rx, ry, 0, rx, ry, 30);
+  cGrd.addColorStop(0, 'rgba(255,255,255,0.95)');
+  cGrd.addColorStop(0.4, 'rgba(200,220,255,0.7)');
+  cGrd.addColorStop(1, 'rgba(100,150,200,0)');
+  usCtx.fillStyle = cGrd;
+  usCtx.beginPath();
+  usCtx.ellipse(rx, ry, 22, 9, 0, 0, Math.PI*2);
+  usCtx.fill();
+
+  // Acoustic shadow below
+  usCtx.fillStyle = 'rgba(0,0,0,0.5)';
+  usCtx.fillRect(rx-18, ry+9, 36, H - ry - 9);
+
+  // Depth scale
+  usCtx.fillStyle = 'rgba(0,212,255,0.6)';
+  usCtx.font = '9px monospace';
+  for (let i = 1; i <= 5; i++) {
+    const dy = H * 0.1 + i * H * 0.16;
+    usCtx.fillText(i*5 + 'mm', 6, dy);
+    usCtx.fillRect(20, dy - 1, 8, 1);
+  }
+
+  requestAnimationFrame(drawUS);
+}
+drawUS();
+
+// ── LIVE OUTPUT UPDATE ──
+let frameCount = 12;
+setInterval(() => {
+  frameCount++;
+  document.getElementById('frameNum').textContent = String(frameCount).padStart(4, '0');
+  document.getElementById('confEl').textContent = (0.88 + Math.random() * 0.1).toFixed(3);
+  document.getElementById('fpsEl').textContent = (22 + Math.floor(Math.random() * 4));
+}, 1000);
+
+// ── CHARTS ──
+Chart.defaults.color = '#4a7a99';
+Chart.defaults.borderColor = '#0d3a56';
+Chart.defaults.font.family = 'Space Mono, monospace';
+Chart.defaults.font.size = 10;
+
+// Loss Chart
+const epochs = Array.from({length: 50}, (_, i) => i + 1);
+const trainLoss = epochs.map(e => 0.8 * Math.exp(-e/15) + 0.05 + Math.random()*0.02);
+const valLoss = epochs.map(e => 0.85 * Math.exp(-e/14) + 0.07 + Math.random()*0.025);
+
+new Chart(document.getElementById('lossChart'), {
+  type: 'line',
+  data: {
+    labels: epochs,
+    datasets: [
+      { label: 'Train Loss', data: trainLoss, borderColor: '#00d4ff', backgroundColor: 'rgba(0,212,255,0.05)', tension: 0.4, borderWidth: 2, pointRadius: 0 },
+      { label: 'Val Loss',   data: valLoss,   borderColor: '#ff6b35', backgroundColor: 'rgba(255,107,53,0.05)', tension: 0.4, borderWidth: 2, pointRadius: 0, borderDash: [4,2] }
+    ]
+  },
+  options: { responsive: true, animation: { duration: 2000 }, plugins: { legend: { labels: { color: '#4a7a99', boxWidth: 12 } } }, scales: { x: { title: { display: true, text: 'Epoch', color: '#4a7a99' } }, y: { title: { display: true, text: 'Loss', color: '#4a7a99' } } } }
+});
+
+// mAP Chart
+const mapData = epochs.map(e => Math.min(0.93, 0.1 + 0.83 * (1 - Math.exp(-e/20)) + Math.random()*0.01));
+new Chart(document.getElementById('mapChart'), {
+  type: 'line',
+  data: {
+    labels: epochs,
+    datasets: [
+      { label: 'mAP@0.5',  data: mapData, borderColor: '#00ff9d', backgroundColor: 'rgba(0,255,157,0.08)', tension: 0.4, borderWidth: 2, pointRadius: 0, fill: true }
+    ]
+  },
+  options: { responsive: true, animation: { duration: 2000 }, plugins: { legend: { labels: { color: '#4a7a99', boxWidth: 12 } } }, scales: { x: { title: { display: true, text: 'Epoch', color: '#4a7a99' } }, y: { min: 0, max: 1, title: { display: true, text: 'mAP', color: '#4a7a99' } } } }
+});
+
+// Distribution Chart
+new Chart(document.getElementById('distChart'), {
+  type: 'bar',
+  data: {
+    labels: ['Sphere', 'Cube', 'Cylinder', 'Helical', 'Soft Sheet', 'Roll Cube', 'Flagella', 'Chain'],
+    datasets: [{
+      label: 'Images',
+      data: [4800, 5100, 5200, 4900, 5000, 5050, 4950, 5000],
+      backgroundColor: ['#00d4ff33','#00d4ff33','#00ff9d88','#00d4ff33','#00d4ff33','#00d4ff33','#00d4ff33','#00d4ff33'],
+      borderColor: ['#00d4ff','#00d4ff','#00ff9d','#00d4ff','#00d4ff','#00d4ff','#00d4ff','#00d4ff'],
+      borderWidth: 2
+    }]
+  },
+  options: { responsive: true, animation: { duration: 1500 }, plugins: { legend: { display: false } }, scales: { x: { ticks: { maxRotation: 45 } }, y: { title: { display: true, text: 'Count', color: '#4a7a99' } } } }
+});
+
+// Precision-Recall
+const recalls = Array.from({length: 20}, (_, i) => i / 19);
+const precisions = recalls.map(r => Math.max(0, 0.98 - r * 0.12 + (Math.random()-0.5)*0.02));
+new Chart(document.getElementById('prChart'), {
+  type: 'line',
+  data: {
+    labels: recalls.map(r => r.toFixed(2)),
+    datasets: [{
+      label: 'Cylinder Precision-Recall (AP=0.931)',
+      data: precisions,
+      borderColor: '#00d4ff',
+      backgroundColor: 'rgba(0,212,255,0.1)',
+      tension: 0.4,
+      borderWidth: 2,
+      fill: true,
+      pointRadius: 3,
+      pointBackgroundColor: '#00ff9d'
+    }]
+  },
+  options: {
+    responsive: true, animation: { duration: 2000 },
+    plugins: { legend: { labels: { color: '#c8e6f5', boxWidth: 12 } } },
+    scales: {
+      x: { title: { display: true, text: 'Recall', color: '#4a7a99' } },
+      y: { min: 0, max: 1, title: { display: true, text: 'Precision', color: '#4a7a99' } }
+    }
+  }
+});
+
+// ── TERMINAL ──
+const logs = [
+  { ts: '09:42:11', msg: 'Model loaded — <span class="val">yolov5s.pt</span> weights initialized', type: 'ok' },
+  { ts: '09:42:11', msg: 'Dataset: <span class="val">USMicroMagSet</span> | Class: <span class="val">Cylinder (SMF)</span>', type: '' },
+  { ts: '09:42:12', msg: 'Image size: <span class="val">640×640</span> | Batch: <span class="val">16</span> | Epochs: <span class="val">300</span>', type: '' },
+  { ts: '09:42:15', msg: 'Epoch 001/300: box_loss=<span class="val">0.812</span> obj_loss=<span class="val">0.634</span> cls_loss=<span class="val">0.421</span>', type: '' },
+  { ts: '09:44:22', msg: 'Epoch 050/300: mAP@0.5=<span class="ok">0.712</span> Precision=<span class="ok">0.74</span> Recall=<span class="ok">0.69</span>', type: 'ok' },
+  { ts: '09:48:10', msg: 'Epoch 100/300: mAP@0.5=<span class="ok">0.851</span> Precision=<span class="ok">0.86</span> Recall=<span class="ok">0.82</span>', type: 'ok' },
+  { ts: '09:55:44', msg: 'Epoch 200/300: mAP@0.5=<span class="ok">0.912</span> — New best model saved', type: 'ok' },
+  { ts: '10:03:21', msg: 'Epoch 280/300: mAP@0.5=<span class="ok">0.931</span> Precision=<span class="ok">0.91</span> Recall=<span class="ok">0.88</span>', type: 'ok' },
+  { ts: '10:05:02', msg: '<span class="ok">Training complete.</span> Best mAP@0.5: <span class="val">0.931</span> @ epoch 280', type: 'ok' },
+  { ts: '10:05:05', msg: 'Inference mode activated — <span class="val">Cylinder</span> detection running', type: '' },
+  { ts: '10:05:06', msg: 'Frame 0042: CYLINDER detected at [214,183,298,241] conf=<span class="ok">0.942</span>', type: '' },
+  { ts: '10:05:07', msg: 'Frame 0043: CYLINDER detected at [218,185,302,244] conf=<span class="ok">0.938</span>', type: '' },
+];
+
+const term = document.getElementById('terminal');
+let logIdx = 0;
+
+function addLog() {
+  if (logIdx < logs.length) {
+    const l = logs[logIdx];
+    const div = document.createElement('div');
+    div.className = 'log-line';
+    div.innerHTML = `<span class="ts">[${l.ts}]</span> ${l.msg}`;
+    term.appendChild(div);
+    logIdx++;
+    term.scrollTop = term.scrollHeight;
+    setTimeout(addLog, 400 + Math.random()*300);
+  } else {
+    // Live inference logs
+    setInterval(() => {
+      const fn = String(Math.floor(Date.now()/1000) % 9999).padStart(4,'0');
+      const conf = (0.88 + Math.random()*0.1).toFixed(3);
+      const x1 = 200 + Math.floor(Math.random()*30), y1 = 170 + Math.floor(Math.random()*20);
+      const div = document.createElement('div');
+      div.className = 'log-line';
+      const now = new Date();
+      const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+      div.innerHTML = `<span class="ts">[${ts}]</span> Frame ${fn}: CYLINDER detected [${x1},${y1},${x1+82},${y1+58}] conf=<span class="ok">${conf}</span>`;
+      term.appendChild(div);
+      term.scrollTop = term.scrollHeight;
+      // keep last 15 lines
+      while (term.children.length > 16) term.removeChild(term.children[1]);
+    }, 1200);
+  }
+}
+setTimeout(addLog, 800);
+
+// ── CLASS CARD SELECT ──
+function selectClass(el) {
+  el.classList.toggle('active');
+}
+
+// ════════════════════════════════════════════════
+//  REAL YOLOV5 INFERENCE — BACKEND INTEGRATION
+// ════════════════════════════════════════════════
+
+let selectedFile = null;
+let lastAnnotatedB64 = null;
+
+// ── Server status check ──
+async function checkServerStatus() {
+  const url = document.getElementById('serverUrl').value.trim();
+  const btn = document.getElementById('checkBtn');
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  const info = document.getElementById('serverInfo');
+
+  btn.textContent = 'CHECKING…';
+  btn.disabled = true;
+  dot.style.background = 'var(--accent3)';
+  dot.style.animation = 'pulse 1s infinite';
+  txt.style.color = 'var(--accent3)';
+  txt.textContent = 'Connecting to backend…';
+
+  try {
+    const res = await fetch(`${url}/status`, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+
+    dot.style.background = 'var(--accent2)';
+    dot.style.animation = 'pulse 2s infinite';
+    txt.style.color = 'var(--accent2)';
+    txt.textContent = data.model_loaded
+      ? `✓ Connected — Model loaded (${data.model_path}) on ${data.device.toUpperCase()}`
+      : `⚠ Connected but model not loaded — check server logs`;
+
+    // Populate info cards
+    document.getElementById('si-device').textContent = data.device.toUpperCase();
+    document.getElementById('si-conf').textContent  = data.conf_thresh;
+    document.getElementById('si-iou').textContent   = data.iou_thresh;
+    document.getElementById('si-model').textContent = data.model_loaded ? 'YES ✓' : 'NO ✗';
+    info.style.display = 'grid';
+
+    // Show upload section
+    document.getElementById('uploadSection').style.display = 'block';
+
+    addInferenceLog(`Connected to ${url}`, 'ok');
+    addInferenceLog(`Device: ${data.device.toUpperCase()} | Model: ${data.model_loaded ? 'LOADED' : 'NOT LOADED'}`, data.model_loaded ? 'ok' : 'warn');
+
+  } catch (e) {
+    dot.style.background = '#ff4444';
+    dot.style.animation = 'none';
+    txt.style.color = '#ff4444';
+    txt.textContent = `✗ Cannot reach backend at ${url} — Is app.py running? (${e.message})`;
+    info.style.display = 'none';
+    document.getElementById('uploadSection').style.display = 'none';
+    addInferenceLog(`Connection failed: ${e.message}`, 'err');
+  }
+
+  btn.textContent = 'CONNECT';
+  btn.disabled = false;
+}
+
+// ── File handling ──
+function handleFileSelect(event) {
+  const file = event.target.files[0];
+  if (file) loadPreview(file);
+}
+
+function handleDrop(event) {
+  event.preventDefault();
+  const dt = event.dataTransfer;
+  if (dt.files && dt.files[0]) {
+    loadPreview(dt.files[0]);
+    event.currentTarget.style.borderColor = 'var(--border)';
+    event.currentTarget.style.background = 'var(--panel)';
+  }
+}
+
+function loadPreview(file) {
+  selectedFile = file;
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dc = document.getElementById('dropContent');
+    dc.innerHTML = `
+      <img src="${e.target.result}" alt="Preview"
+        style="max-height:180px;max-width:100%;border:1px solid var(--accent);margin-bottom:12px;">
+      <div style="font-size:0.7rem;color:var(--accent2);font-family:'Syne',sans-serif;font-weight:700;">
+        ${file.name}
+      </div>
+      <div style="font-size:0.6rem;color:var(--text-dim);margin-top:4px;">
+        ${(file.size / 1024).toFixed(1)} KB — Click to change
+      </div>
+    `;
+  };
+  reader.readAsDataURL(file);
+  document.getElementById('runBtn').style.display = 'block';
+  addInferenceLog(`Image selected: ${file.name} (${(file.size/1024).toFixed(1)} KB)`, '');
+}
+
+// ── Run inference ──
+async function runInference() {
+  if (!selectedFile) return;
+
+  const url = document.getElementById('serverUrl').value.trim();
+  const confVal = document.getElementById('confThresh').value;
+  const iouVal  = document.getElementById('iouThresh').value;
+  const runBtn  = document.getElementById('runBtn');
+
+  // Show loading
+  document.getElementById('inferencePanel').style.display = 'none';
+  document.getElementById('resultsPanel').style.display = 'none';
+  document.getElementById('loadingOverlay').style.display = 'block';
+
+  const loadingMsgs = [
+    'Sending image to YOLOv5 model…',
+    'Pre-processing frame (resize → letterbox)…',
+    'Running forward pass through YOLOv5 backbone…',
+    'Applying NMS — filtering overlapping boxes…',
+    'Drawing bounding boxes on result…',
+    'Encoding annotated image…'
+  ];
+  let mi = 0;
+  const msgInterval = setInterval(() => {
+    document.getElementById('loadingMsg').textContent = loadingMsgs[mi % loadingMsgs.length];
+    mi++;
+  }, 600);
+
+  try {
+    const formData = new FormData();
+    formData.append('image', selectedFile);
+    formData.append('conf', confVal);
+    formData.append('iou',  iouVal);
+
+    const t0 = performance.now();
+    const res = await fetch(`${url}/predict`, { method: 'POST', body: formData });
+    const roundtrip = (performance.now() - t0).toFixed(0);
+
+    clearInterval(msgInterval);
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+
+    if (!data.success) throw new Error(data.error || 'Unknown error');
+
+    // Populate results
+    document.getElementById('origImg').src   = data.original_image;
+    document.getElementById('annotImg').src  = data.annotated_image;
+    lastAnnotatedB64 = data.annotated_image;
+
+    document.getElementById('res-count').textContent   = data.num_detections;
+    document.getElementById('res-ms').textContent      = `${data.inference_ms}ms model + ${roundtrip}ms total`;
+    document.getElementById('res-device').textContent  = data.device.toUpperCase();
+    document.getElementById('res-size').textContent    = `${data.image_size[0]}×${data.image_size[1]}`;
+
+    const bestConf = data.detections.length
+      ? Math.max(...data.detections.map(d => d.confidence)).toFixed(3)
+      : '—';
+    document.getElementById('res-bestconf').textContent = bestConf;
+
+    // Table
+    const tbody = document.getElementById('detTableBody');
+    tbody.innerHTML = '';
+    if (data.detections.length > 0) {
+      document.getElementById('detTable').style.display = 'block';
+      document.getElementById('noDetMsg').style.display = 'none';
+      data.detections.forEach((d, i) => {
+        const [x1,y1,x2,y2] = d.bbox;
+        const w = (x2-x1).toFixed(0), h = (y2-y1).toFixed(0);
+        const confPct = (d.confidence * 100).toFixed(1);
+        const barColor = d.confidence > 0.8 ? 'var(--accent2)' : d.confidence > 0.5 ? 'var(--accent)' : 'var(--accent3)';
+        tbody.innerHTML += `
+          <tr>
+            <td>${i+1}</td>
+            <td style="font-family:'Syne',sans-serif;font-weight:700;">${d.class_name.toUpperCase()}</td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div style="width:80px;height:4px;background:var(--panel);border:1px solid var(--border);overflow:hidden;">
+                  <div style="width:${confPct}%;height:100%;background:${barColor};"></div>
+                </div>
+                ${d.confidence.toFixed(4)}
+              </div>
+            </td>
+            <td style="color:var(--text-dim);">[${x1.toFixed(0)}, ${y1.toFixed(0)}, ${x2.toFixed(0)}, ${y2.toFixed(0)}]</td>
+            <td>${w} × ${h} px</td>
+          </tr>`;
+      });
+    } else {
+      document.getElementById('detTable').style.display = 'none';
+      document.getElementById('noDetMsg').style.display = 'block';
+    }
+
+    addInferenceLog(`Inference complete — ${data.num_detections} object(s) detected in ${data.inference_ms}ms`, 'ok');
+    data.detections.forEach((d, i) => {
+      addInferenceLog(`  Det ${i+1}: ${d.class_name} conf=${d.confidence.toFixed(4)} bbox=[${d.bbox.map(v=>Math.round(v)).join(', ')}]`, '');
+    });
+
+    // Show results
+    document.getElementById('loadingOverlay').style.display = 'none';
+    document.getElementById('resultsPanel').style.display = 'block';
+    document.getElementById('resultsPanel').scrollIntoView({ behavior: 'smooth' });
+
+  } catch (e) {
+    clearInterval(msgInterval);
+    addInferenceLog(`Error: ${e.message}`, 'err');
+    document.getElementById('loadingOverlay').style.display = 'none';
+    document.getElementById('inferencePanel').style.display = 'block';
+    document.getElementById('statusText').textContent = `✗ Inference failed: ${e.message}`;
+    document.getElementById('statusDot').style.background = '#ff4444';
+    alert(`Inference failed: ${e.message}\n\nCheck that app.py is running.`);
+  }
+}
+
+// ── Reset ──
+function resetInference() {
+  selectedFile = null;
+  lastAnnotatedB64 = null;
+  document.getElementById('resultsPanel').style.display = 'none';
+  document.getElementById('inferencePanel').style.display = 'block';
+  document.getElementById('dropContent').innerHTML = `
+    <div style="font-size:2rem;margin-bottom:12px;color:var(--text-dim);">⬆</div>
+    <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:0.9rem;margin-bottom:8px;color:var(--text);">
+      DROP IMAGE HERE or CLICK TO BROWSE
+    </div>
+    <div style="font-size:0.6rem;color:var(--text-dim);letter-spacing:0.1em;">
+      Supports JPG, PNG, BMP — Ultrasound frames recommended
+    </div>`;
+  document.getElementById('imageInput').value = '';
+  document.getElementById('runBtn').style.display = 'none';
+  document.getElementById('uploadSection').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ── Download ──
+function downloadResult() {
+  if (!lastAnnotatedB64) return;
+  const a = document.createElement('a');
+  a.href = lastAnnotatedB64;
+  a.download = `cylinder_detection_${Date.now()}.jpg`;
+  a.click();
+}
+
+// ── Inference terminal logger ──
+function addInferenceLog(msg, type) {
+  const term = document.getElementById('terminal');
+  if (!term) return;
+  const now = new Date();
+  const ts = `${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  const color = type === 'ok' ? 'var(--accent2)' : type === 'err' ? '#ff4444' : type === 'warn' ? 'var(--accent3)' : 'var(--text-dim)';
+  div.innerHTML = `<span class="ts">[${ts}]</span> <span style="color:${color}">${msg}</span>`;
+  term.appendChild(div);
+  term.scrollTop = term.scrollHeight;
+  while (term.children.length > 20) term.removeChild(term.children[1]);
+}
+
+// Auto-check status on load after 1s delay
+setTimeout(() => {
+  addInferenceLog('Inference panel ready — click CONNECT to link backend', '');
+}, 2000);
+
+</script>
+</body>
+</html>
